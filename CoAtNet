@@ -1,0 +1,199 @@
+{
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "metadata": {
+    "colab": {
+      "name": "Untitled10.ipynb",
+      "provenance": [],
+      "authorship_tag": "ABX9TyO+s8cmQIz1x08uZFQtLUkq",
+      "include_colab_link": true
+    },
+    "kernelspec": {
+      "name": "python3",
+      "display_name": "Python 3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "view-in-github",
+        "colab_type": "text"
+      },
+      "source": [
+        "<a href=\"https://colab.research.google.com/github/jojivk/The-Ramp/blob/master/CoAtNet\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "ep7oPF45OGWx"
+      },
+      "source": [
+        "import torch\n",
+        "import torch.nn as nn"
+      ],
+      "execution_count": 11,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "VqySnsQIOTDj",
+        "outputId": "3a16ceef-f1b3-4ee9-b407-fbf93e477e7c"
+      },
+      "source": [
+        "!pip install einops\n",
+        "from einops import rearrange\n"
+      ],
+      "execution_count": 13,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Collecting einops\n",
+            "  Downloading einops-0.3.2-py3-none-any.whl (25 kB)\n",
+            "Installing collected packages: einops\n",
+            "Successfully installed einops-0.3.2\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "ur-pX8qvOV4q"
+      },
+      "source": [
+        "from einops.layers.torch import Rearrange\n",
+        "\n",
+        "def conv_3x3_bn(inp, oup, image_size, downsample=False):\n",
+        "  stride=1 if downsample==False else 2\n",
+        "  return nn.Sequential(\n",
+        "      nn.Conv2d(inp, oup, 3, stride, 1, bias=False),\n",
+        "      nn.BatchNorm2d(oup),\n",
+        "      nn.GELU())\n",
+        "  \n",
+        "\n",
+        "class PreNorm(nn.Module):\n",
+        "  def __init__(self, dim, fn, norm):\n",
+        "      super().__init()\n",
+        "      self.norm = norm(dim)\n",
+        "      self.fn=fn\n",
+        "\n",
+        "  def forward(self, x, **kwargs):\n",
+        "    return self.fn(self.norm(x), **kwargs)\n",
+        "\n",
+        "\n",
+        "class SE(nn.Module):\n",
+        "  def __init__(self, inp, oup, expansion=0.25):\n",
+        "    super().__init__()\n",
+        "    self.avg_pool = nn.AdaptiveAvgPool2d(1)\n",
+        "    self.fc = nn.Sequential(\n",
+        "        nn.Linear(oup, int(inp *expansion), bias=False),\n",
+        "        nn.GELU(),\n",
+        "        nn.Linear(int(inp *expansion), oup, bias=False),\n",
+        "        nn.Sigmoid()\n",
+        "    )\n",
+        "\n",
+        "  def forward(self, x):\n",
+        "    b, c, _, _ =x.size()\n",
+        "    y = self.avg_pool(x).view(b,c)\n",
+        "    y = self.fc(y).view(b,c,1,1)\n",
+        "    return x * y\n",
+        "\n"
+      ],
+      "execution_count": 17,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "w9UMe2FaPI9T"
+      },
+      "source": [
+        "class FeedForward(nn.Module):\n",
+        "  def __init__(self, dim, hidden_dim, dropout=0.):\n",
+        "    super().__init__()\n",
+        "    self.net = nn.Sequential(\n",
+        "        nn.Linear(dim, hidden_dim),\n",
+        "        nn.GELU(),\n",
+        "        nn.Dropout(dropout),\n",
+        "        nn.Linear(hidden_dim, dim),\n",
+        "        nn.Dropout(dropout)\n",
+        "    )\n",
+        "\n",
+        "  def forward(self,x):\n",
+        "    return self.net(x)\n",
+        "\n",
+        "\n",
+        "class MBConv(nn.Module):\n",
+        "  def __init__(self, inp, oup, image_size, downsample=False, expansion=4):\n",
+        "    super().__init__()\n",
+        "    self.downsample = downsample\n",
+        "    stride=1 if self.downsample=False else 2\n",
+        "    hidden_dim = int(inp * expansion)\n",
+        "\n",
+        "    if self.downsample:\n",
+        "      self.pool = nn.MaxPool2d(3,2,1)\n",
+        "      self.proj = nn.Conv2d(inp, oup, 1, 1, 0, bias=False)\n",
+        "\n",
+        "    if expansion == 1:\n",
+        "      self.conv = nn.Sequential(\n",
+        "          nn.Conv2d(hidden_dim, hidden_dimm 3, stride, 1\n",
+        "                    groups=hidden_fim, bias=False),\n",
+        "          nn.BatchNorm2d(hidden_dim),\n",
+        "          nn.GELU(),\n",
+        "          nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False),\n",
+        "          nn.BatchNorm2d(oup),\n",
+        "      )\n",
+        "    else:\n",
+        "      self.conv=nn.Sequential(\n",
+        "          nn.Conv2d(inp, hidden_dim, 1, stride, 0, bias=False),\n",
+        "          nn.BatchNorm2d(hidden_dim),\n",
+        "          nn.GELU(),\n",
+        "          nn.Conv2d(hidden_dim, hidden_dim, 3, 1, 1,\n",
+        "                          groups=hidden_dim, bias=False),\n",
+        "          nn.BatchNorm2d(hidden_dim),\n",
+        "          nn.GELU(),\n",
+        "          SE(inp, hidden_dim),\n",
+        "          # pw-linear\n",
+        "          nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False),\n",
+        "          nn.BatchNorm2d(oup),\n",
+        "      )\n",
+        "    self.conv=PreNorm(inp, self.conv, nn.BatchNorm2d)\n",
+        "\n",
+        "\n",
+        "  def forward(self, x):\n",
+        "    if self.downsample :\n",
+        "      return self.proj(self.pool(x)) + self.conv(x)\n",
+        "    else :\n",
+        "      return x + self.conv(x)\n",
+        "\n",
+        "\n",
+        "class Attention(nn.Module):\n",
+        "  "
+      ],
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "oYllMwEeRUY-"
+      },
+      "source": [
+        ""
+      ],
+      "execution_count": null,
+      "outputs": []
+    }
+  ]
+}
